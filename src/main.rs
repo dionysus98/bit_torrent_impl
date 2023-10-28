@@ -1,21 +1,39 @@
+use serde::Deserializer;
 use serde_json::{self, Map};
-use std::env;
+use std::{env, fs, panic};
 
 // Available if you need it!
 // use serde_bencode
 
+// Learn more about the struct https://www.bittorrent.org/beps/bep_0003.html#metainfo-files
+
+struct Torrent {
+    announce: reqwest::Url,
+    info: Info,
+}
+
+struct Info {
+    length: usize,
+    name: String,
+    piece_length: usize,
+    pieces: Vec<u8>,
+}
+
 fn x_xs(s: &str) -> Option<(char, &str)> {
     if !s.is_empty() && s.len() > 1 {
-        Some((s.chars().next().unwrap(), s.split_at(1).1))
-    } else {
-        None
+        if let Some(x) = s.chars().next() {
+            if let Some(v) = s.get(1..) {
+                return (x, v).into();
+            }
+        }
     }
+    None
 }
 
 // #[allow(dead_code)]
 fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
     fn is_string(f: char, r: &str) -> bool {
-        f.is_digit(10) && x_xs(r).unwrap().0 == ':'
+        f.is_digit(10) && r.contains(":")
     }
 
     fn is_end(s: &str) -> bool {
@@ -38,11 +56,12 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
             let mut dict = Map::new();
             let mut remains = r;
             while !is_end(remains) {
-                let (key, rest) = decode_bencoded_value(remains);
-                let (value, rest) = decode_bencoded_value(rest);
+                let (key, acc) = decode_bencoded_value(remains);
+                let (value, rest) = decode_bencoded_value(acc);
                 dict.insert(key.to_string(), value);
                 remains = rest
             }
+
             (dict.into(), remains)
         }
 
@@ -59,8 +78,7 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
 
         Some((f, r)) if f == 'e' => decode_bencoded_value(r),
 
-        None => (encoded_value.into(), ""),
-        _ => panic!("Unhandled encoded value: {}", encoded_value),
+        _ => (encoded_value.into(), ""),
     }
 }
 
@@ -72,6 +90,14 @@ fn main() {
         let encoded_value = &args[2];
         let (decoded_value, _) = decode_bencoded_value(encoded_value);
         println!("{} ", decoded_value.to_string());
+    } else if command == "info" {
+        let fpath = &args[2];
+        let bytes = fs::read(fpath).unwrap();
+        let contents = String::from_utf8_lossy(&bytes).to_owned();
+        let (decoded, _) = decode_bencoded_value(&contents);
+
+        // println!("{contents:?}");
+        println!("{:?}", decoded);
     } else {
         println!("unknown command: {}", args[1])
     }
