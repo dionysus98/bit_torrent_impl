@@ -18,49 +18,31 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
         f.is_digit(10) && x_xs(r).unwrap().0 == ':'
     }
 
-    fn recur_while<F>(mut acc: &str, mut update: F) -> &str
-    where
-        F: FnMut(&str) -> &str,
-    {
-        println!("acc {acc}");
-        while !acc.is_empty() {
-            if acc.starts_with("e") {
-                match acc.len() {
-                    len if len > 1 => {
-                        acc = x_xs(acc).unwrap().1;
-                    }
-                    len if len == 1 => {
-                        acc = "";
-                    }
-                    _ => break,
-                }
-            }
-
-            acc = update(acc);
-        }
-        acc
+    fn is_end(s: &str) -> bool {
+        s.is_empty() || s.starts_with("e")
     }
 
     match x_xs(encoded_value) {
         Some((f, r)) if f == 'l' => {
             let mut list: Vec<serde_json::Value> = Vec::new();
-            let remains = recur_while(r, |acc| {
-                let (value, rest) = decode_bencoded_value(acc);
+            let mut remains = r;
+            while !is_end(remains) {
+                let (value, rest) = decode_bencoded_value(remains);
                 list.push(value);
-                rest
-            });
-            eprintln!("remains {remains}");
+                remains = rest
+            }
             (list.into(), remains)
         }
 
         Some((f, r)) if f == 'd' => {
             let mut dict = Map::new();
-            let remains = recur_while(r, |acc| {
-                let (key, remains) = decode_bencoded_value(acc);
-                let (value, remains) = decode_bencoded_value(remains);
+            let mut remains = r;
+            while !is_end(remains) {
+                let (key, rest) = decode_bencoded_value(remains);
+                let (value, rest) = decode_bencoded_value(rest);
                 dict.insert(key.to_string(), value);
-                remains
-            });
+                remains = rest
+            }
             (dict.into(), remains)
         }
 
@@ -75,6 +57,8 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
             (rest[..len].into(), &rest[len..])
         }
 
+        Some((f, r)) if f == 'e' => decode_bencoded_value(r),
+
         None => (encoded_value.into(), ""),
         _ => panic!("Unhandled encoded value: {}", encoded_value),
     }
@@ -84,13 +68,9 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
 fn main() {
     let args: Vec<String> = env::args().collect();
     let command = &args[1];
-
     if command == "decode" {
-        eprintln!("Logs from your program will appear here!");
-
         let encoded_value = &args[2];
         let (decoded_value, _) = decode_bencoded_value(encoded_value);
-
         println!("{} ", decoded_value.to_string());
     } else {
         println!("unknown command: {}", args[1])
